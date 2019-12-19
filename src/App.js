@@ -1,26 +1,25 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React from "react";
+import { withStyles } from "@material-ui/core";
+import AnalogClock from "./components/AnalogClock/AnalogClock";
+import SignUp1 from "./components/SignUp/SignUp1";
+import SignUp2 from "./components/SignUp/SignUp2";
+import backgroundImage from "./assets/background.jpg";
 
-function App() {
+const styles = () => ({
+  root: {
+    background: `url(${backgroundImage}) no-repeat center center fixed`,
+    backgroundSize: "cover",
+    fontFamily:'sans-serif'
+  }
+});
+function App({ classes }) {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div className={classes.root}>
+      <AnalogClock />
+      <SignUp1 />
+      <SignUp2 />
     </div>
   );
 }
 
-export default App;
+export default withStyles(styles)(App);
