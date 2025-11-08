@@ -10,6 +10,74 @@ This guide distills the key ideas from the Chakde System Design series episode o
 
 Clarify the round type and expectations up front so you invest the limited time in the right layer of detail.
 
+## Client-Server Architecture Primer
+Understanding how the client, server, and data layers relate keeps your front-end proposals grounded in reality. Think of the “samosa stall” analogy from the transcript: as the business scales, responsibilities separate into distinct stations. Modern web stacks follow the same progression.
+
+- **User:** The human with intent (hungry customer).
+- **Client:** The interface the user touches—browser tab, mobile app, kiosk (the dining table + menu).
+- **API:** The contract that ferries requests/responses between layers (the waiter).
+- **Server / Service:** Executes business logic, enforces rules, orchestrates workflows (cash counter, order management).
+- **Database / Persistence:** Stores durable state (samosa kitchen + cold storage).
+
+```
+User (browser/mobile)
+      │  HTTP request (order)
+      ▼
+Client App ── waiter/API ──► Account Service (auth/billing)
+                                │
+                                ▼
+                            Kitchen Service (business logic)
+                                │
+                                ▼
+                           Database / Cache (inventory)
+```
+
+### Tiers in Practice
+- **Single-tier (1-tier):** UI, business logic, and data live together (static HTML/PHP file with embedded SQL). Easy to start, hard to scale.
+- **Two-tier:** Client talks directly to a database or monolithic service (classic LAMP app, React SPA hitting a single REST server).
+- **Three-tier:** Client → API gateway/business service → database. Separation of concerns, caching layers, auth boundaries.
+- **N-tier / microservices:** Additional specialized services (payments, search, notification), each exposing APIs. They communicate server-to-server before the client ever sees a response.
+
+### Front-End vs Back-End Boundaries
+- **Front-end:** Everything that ships with the client (React components, CSS, Service Worker, local storage). Its job is to gather inputs, call APIs, render state, and handle interactions.
+- **Back-end:** Services, queues, databases, caches, and batch jobs that process, enrich, and persist data.
+- In a React SPA, `fetch('/api/orders')` crosses the boundary—everything beyond `/api` is part of the back-end.
+
+### Example: API Call Flow
+```tsx
+// src/api/orders.ts
+export async function fetchOrders() {
+  const response = await fetch('/api/orders', {
+    headers: { Accept: 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to load orders');
+  return response.json();
+}
+```
+
+```ts
+// server/orders.router.ts (Express example)
+import { Router } from 'express';
+import { getOrdersForUser } from '../services/orders.service';
+
+const router = Router();
+
+router.get('/api/orders', async (req, res, next) => {
+  try {
+    const userId = req.user!.id;
+    const orders = await getOrdersForUser(userId); // queries database/cache
+    res.json(orders);
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default router;
+```
+
+In interviews, call out these layers explicitly: *“The client issues a GET `/api/orders`; the API gateway authenticates, calls the orders service, which pulls inventory from Postgres/Redis, then returns JSON. The front-end renders once the promise resolves.”* Clear separation convinces interviewers you can design systems that grow beyond a single “stall.”
+
 ## End-to-End Workflow
 Treat the session as a collaborative design exercise. Work through these stages deliberately and narrate your thinking.
 
