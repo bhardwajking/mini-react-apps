@@ -1,30 +1,53 @@
-# Frontend System Design Mini-Book
+# Frontend System Design Mini‑Book
 
-**Goal:** help you talk through a frontend system design interview like you are telling a clear story to a friend.  
-**Tone:** plain words so even a 10-year-old can follow.  
-**Structure:** short sections you can read in any order.
-
----
-
-## How to Use This Book
-1. Read *Key Words* so you can name every part of the story.
-2. Follow *The Interview Journey* when you answer questions.
-3. Skim *Cheat Sheets* before the interview to keep ideas fresh.
-4. Use the *Checklists* while building real projects.
+**Goal:** Help you narrate a complete frontend system design during interviews.  
+**Tone:** Friendly but thorough; keeps deeper details the panel expects.  
+**Structure:** Organized like a short field guide so you can jump to any page.
 
 ---
 
-## Part 1 – Key Words & Characters
+## Table of Contents
+1. Part 1 – Interview Landscape  
+2. Part 2 – Client–Server Primer  
+3. Part 3 – End-to-End Workflow  
+4. Part 4 – Technology Choices & Architecture  
+5. Part 5 – Common Functional Modules  
+6. Part 6 – Non-Functional Considerations  
+7. Part 7 – Tools & Practice  
+8. Part 8 – Mantras for the Room  
+9. Part 9 – Preparation Checklist  
+10. Part 10 – Performance Optimization Deep Dive  
+11. Part 11 – Asset Optimization Guide  
+12. Part 12 – JavaScript Memory Optimization  
+13. Part 13 – Quick References & Commands  
+14. Final Thought
 
-| Word | Think of it as | What it does |
-| ---- | -------------- | ------------ |
-| **User** | Hungry customer | Wants something done. |
-| **Client** | Table + menu (browser/app) | Shows screens, sends clicks. |
-| **API** | Waiter | Carries orders and answers. |
-| **Server** | Kitchen manager | Follows rules, talks to helpers. |
-| **Database** | Food storage | Remembers everything. |
-| **Front end** | All code shipped to the client | Draws, listens, talks to APIs. |
-| **Back end** | Services, queues, databases | Stores, secures, automates. |
+---
+
+## Part 1 – Interview Landscape
+
+### Round Types
+| Round | What they focus on | Sample React story |
+|-------|--------------------|--------------------|
+| **System Design** | How the product behaves, integrates, scales | “Design a multi-team dashboard that stitches inventory, payment, and fulfillment microservices with clear contracts and SLAs.” |
+| **Product Sense** | User empathy, trade-offs, UX + tech | “Ship an MVP wishlist with optimistic updates before adding personalized recommendations.” |
+| **UI Architecture** | Large-scale structure, shared libs, collaboration | “Split a ride-share admin portal into micro-frontends so pricing, support, and fleet teams ship independently.” |
+| **Machine Coding / Component Design** | Implementation depth, tests, polish | “Build a WhatsApp-like autocomplete with debouncing, keyboard support, and unit tests.” |
+
+**Tip:** Always clarify which round you are in so you aim at the right altitude.
+
+---
+
+## Part 2 – Client–Server Primer
+
+### Roles at a Glance
+| Layer | Analogy | Responsibility |
+|-------|---------|----------------|
+| User | Hungry customer | Drives requirements. |
+| Client | Table + menu | Presents UI, collects input. |
+| API | Waiter | Moves requests/responses. |
+| Server | Kitchen manager | Enforces rules, coordinates services. |
+| Database | Pantry | Stores durable data. |
 
 ```
 User → Client → API → Server → Database
@@ -32,256 +55,309 @@ User → Client → API → Server → Database
         responses    more APIs
 ```
 
-### Tiers (Layers) Story
-- **1 tier:** stall, everything in one place.
-- **2 tier:** client + one server (LAMP, SPA + API).
-- **3 tier:** client + API + database.
-- **N tier:** many small servers (payments, search, chat, etc.).
+### Tiers in Practice
+| Tier | Restaurant Analogy | Web Stack Example |
+|------|--------------------|-------------------|
+| 1-tier | Single stall (cook, serve, bill at one spot) | Static HTML + local SQLite |
+| 2-tier | Dining area + kitchen linked by waiter | React SPA + Express/Monolith |
+| 3-tier | Dining, billing counter, kitchen | React SPA → API Gateway → Node service → Postgres |
+| N-tier | Dining, billing, kitchen, cold storage, delivery partner | SPA → API Gateway → auth/payment/order/search microservices → DB + cache + queue |
 
-### A Tiny API Example
+### Example Request Flow
 ```tsx
-// Client: asks for orders
+// src/api/orders.ts
 export async function fetchOrders() {
-  const res = await fetch('/api/orders', { credentials: 'include' });
-  if (!res.ok) throw new Error('Cannot load orders');
-  return res.json();
+  const response = await fetch('/api/orders', {
+    headers: { Accept: 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Failed to load orders');
+  return response.json();
 }
 ```
 ```ts
-// Server: answers with data
+// server/orders.router.ts
 router.get('/api/orders', async (req, res, next) => {
   try {
-    const orders = await readOrders(req.user!.id);
-    res.json(orders);
+    const orders = await getOrdersForUser(req.user!.id);
+    res.json(orders); // Postgres/Redis behind the scenes
   } catch (error) {
     next(error);
   }
 });
 ```
-
-When you explain a design, point to each layer so the interviewer knows you see the whole path.
-
----
-
-## Part 2 – The Interview Journey (Seven Steps)
-
-1. **Say hello and set the stage**  
-   “Let me restate the goal…”  
-   Ask: user type, device, must-have features.
-
-2. **Gather requirements**  
-   - *Functional* (what users do).  
-   - *Non-functional* (speed, accessibility, security, offline).  
-   Use: “Anything else you expect?”  
-
-3. **Scope and prioritise**  
-   Pick a small slice (MVP).  
-   Pause: “Is it okay if I focus on product listing + cart first?”
-
-4. **Pick tools on purpose**  
-   Call out front-end library, state store, build tool, design system.  
-   Explain one trade-off (“I choose React Query over Redux here because…”).
-
-5. **Draw the component tree**  
-   List parents → children.  
-   Mention routing, shared state, themes, feature flags.
-
-6. **Talk data and APIs**  
-   Endpoints (`GET /api/products`, `POST /api/cart`).  
-   Shapes (fields, errors, pagination).  
-   Mention caching, retries, and how you avoid stale answers.
-
-7. **Wrap up**  
-   Summarise: “We built X, chose Y because Z, still need to answer A.”  
-   Invite questions.
-
-### High-Level vs Low-Level Design
-- **HLD:** big picture, modules, contracts, trade-offs.  
-- **LLD:** component props, functions, performance tricks, tests.  
-Always ask which level they want before you dive.
+Always narrate: client calls API, API authenticates, server orchestrates business logic, database returns results, response flows back.
 
 ---
 
-## Part 3 – Common Module Cheat Sheet
+## Part 3 – End-to-End Workflow (Seven Steps)
 
-| Module | Must mention |
-| ------ | ------------ |
-| **Auth** | Sign up, login, reset, tokens, RBAC. |
-| **Support** | FAQ, chat, tickets, escalation. |
-| **Payments** | Stripe, taxes, invoices, retries. |
-| **Catalog** | Filters, search, reviews, images. |
-| **Cart/Checkout** | Totals, coupons, edits, confirmation. |
-| **Account** | Profile, settings, history export. |
+1. **Frame the problem** – restate goal, audience, platforms.
+2. **Gather requirements** – functional + non-functional (performance, accessibility, security, offline, localization).
+3. **Scope carefully** – choose MVP slice; ask what to park.
+4. **Select tools with intent** – library, state store, build tool, design system, feature flags; mention trade-offs.
+5. **Map component hierarchy** – parent/child tree, routing, shared state, theming, reusable atoms.
+6. **Design data + APIs** – endpoints, payloads, error contracts, pagination, caching, rate limits.
+7. **Wrap succinctly** – recap decisions, risks, follow-ups; invite questions.
 
-Pick two modules, go deep, park the rest (“nice to have later”).
-
----
-
-## Part 4 – Optimization Quick Wins
-
-| Area | Easy habits |
-| ---- | ----------- |
-| **Network** | Compress assets, preload critical files, cache smartly. |
-| **Images** | Use `srcset`, lazy-load, pick right format (WebP/AVIF). |
-| **Video** | Prefer WebM, preload metadata, mute previews, stream for long content. |
-| **Fonts** | Use `font-display: swap`, subset fonts, preload. |
-| **CSS** | Inline critical styles, lazy-load the rest, purge unused rules. |
-| **JavaScript** | `defer` bundles, code-split, use workers for heavy tasks. |
+**HLD vs LLD:** Ask the interviewer which level they want before diving deep.
 
 ---
 
-## Part 5 – Asset Playbooks (Short and Sweet)
+## Part 4 – Technology Choices & Architecture
 
-### Images
-1. Compress (Sharp, Squoosh, TinyPNG).  
-2. Offer choices:
-```html
-<picture>
-  <source srcset="/hero.avif 1x, /hero@2x.avif 2x" type="image/avif" />
-  <source srcset="/hero.webp 1x, /hero@2x.webp 2x" type="image/webp" />
-  <img src="/hero.jpg" alt="Beach house" loading="eager" fetchpriority="high" />
-</picture>
-```
-3. Use `srcset` + `sizes` for responsive layouts.  
-4. Lazy-load below-the-fold elements (`loading="lazy"`).  
-5. Show blur or dominant color placeholder until image loads.
+### Component Architecture
+- **Hierarchy:** From `AppShell` down to atomic components (`ProductGrid` → `ProductCard` → `PriceTag`).
+- **Routing:** Handle modals, deep links, shareable URLs (`/invoices/:id#pay`).
+- **State Sharing:** Prop drilling vs Context vs Redux/Zustand vs server cache (TanStack Query).
+- **Composability:** Provide slots, theme overrides, feature flags for gradual rollout.
 
-### Video
-```html
-<video controls preload="metadata" poster="/poster.jpg">
-  <source src="/clip.webm" type="video/webm" />
-  <source src="/clip.mp4" type="video/mp4" />
-</video>
-```
-- Replace looped GIFs with muted autoplay videos.  
-- Only preload fully when the video is above the fold.  
-- Strip audio for previews (`ffmpeg -an`).  
-- Consider HLS/DASH for long streams.
+### Data, APIs, Protocols
+- **Protocols:** REST, GraphQL, SSE, WebSockets, gRPC. Pick based on data shape and latency.
+- **Payloads:** JSON, Protocol Buffers, NDJSON for streaming.
+- **Interaction patterns:** Infinite scroll (IntersectionObserver), debounced search, `AbortController` for cancellation, sequence guards.
+- **Caching layers:** HTTP cache, service worker, CDN edge, Redis/memcached, browser storage (IndexedDB/localStorage).
 
-### Fonts
-```css
-@font-face {
-  font-family: 'Inter';
-  src: url('/fonts/inter.woff2') format('woff2');
-  font-display: swap;
-}
-```
-- Subset only the glyphs you need.  
-- Use FontFaceObserver to switch classes when font loads.  
-- Inline tiny SVG icons using data URI, but avoid huge base64 blobs.
+### Data Modeling & Contracts
+- **Endpoints:** `GET /api/products`, `POST /api/cart/items`, `PATCH /api/users/:id`.
+- **Requests:** Query params vs body, filter tokens, cursor pagination.
+- **Responses:** Standard envelope `{ data, error }`, localization-ready error codes, precise HTTP status codes.
+- **Versioning:** `/api/v2/...` or content negotiation, deprecation notices.
 
-### CSS
-- Inline critical styles for first paint.  
-- Lazy-load the rest:
-```html
-<link rel="preload" href="/app.css" as="style" onload="this.rel='stylesheet'" />
-<noscript><link rel="stylesheet" href="/app.css" /></noscript>
-```
-- Split by media types (`media="print"`, `media="(max-width:600px)"`).  
-- Purge unused selectors with tools like PurgeCSS.
-
-### JavaScript Loading
-- Use `<script defer>` for app bundles.  
-- Use `<script async>` for analytics/ads.  
-- Dynamic import for large screens/routes:
-```tsx
-const AdminPanel = lazy(() => import('./AdminPanel'));
-```
-- Consider Worker threads for CPU-heavy work:
-```ts
-const worker = new Worker(new URL('./math.worker.ts', import.meta.url));
-worker.postMessage({ limit: 1_000_000 });
-```
+### Component-Level Design
+- **API Contracts:** Props/defaults/events to enable safe reuse.
+- **Separation of Concerns:** Smart vs dumb components (`UserListContainer` → `UserList`).
+- **Inclusive UX:** ARIA roles, keyboard traps, `react-intl` for copy, responsive layouts.
+- **Testing:** Unit (Jest), component (React Testing Library), integration (Cypress/Playwright), visual (Storybook).
 
 ---
 
-## Part 6 – Performance Checks
+## Part 5 – Common Functional Modules
 
-- **Frame budget:** aim for <10 ms work per frame. Batch reads, then writes inside `requestAnimationFrame`.  
-- **Core Web Vitals:** FCP, LCP, CLS, INP. Track them in production with `web-vitals`.  
-- **Verify changes:** run Lighthouse, WebPageTest filmstrips, monitor CrUX data.  
-- **Automation:** add budgets to CI (`lighthouse --budgets`).
+| Module | Key Talking Points |
+|--------|--------------------|
+| **User management & auth** | Signup/login, OTP, JWT refresh, 2FA, RBAC. |
+| **Support** | FAQ, live chat, ticket escalation, service-level targets. |
+| **Payments** | Stripe Elements, tax engine, invoices, retries, refunds. |
+| **Catalog** | Filters, search relevance, review aggregation, image lazy-load. |
+| **Cart & checkout** | Optimistic updates, totals, coupons, address validation. |
+| **Account & history** | Settings, preferences, exports, GDPR/CPRA compliance. |
 
----
-
-## Part 7 – Memory Safety Map
-
-| # | Leak Pattern | Fix |
-| - | ------------ | --- |
-| 1 | Implicit globals (`foo = 1`) | `'use strict'`, always `const/let`. |
-| 2 | Forgotten `setInterval` | Store handle, call `clearInterval`. |
-| 3 | Listener buildup | Remove before re-adding, or `{ once: true }`. |
-| 4 | DOM removed but still referenced | Set variable to `null`, scope carefully. |
-| 5 | Heavy closures | Keep closures small, release caches. |
-| 6 | Reference cycles | Break links (`delete obj.child`). |
-| 7 | Opened windows left hanging | `popup?.close(); popup = null;`. |
-| 8 | Promises never settle | Always resolve/reject, add timeouts. |
-| 9 | Observers / subscriptions | Call `disconnect()` or `unsubscribe()`. |
-|10 | Infinite lists storing everything | Virtualise DOM and cap cached items. |
-
-### Helpful Snippets
-```js
-// Timeout helper
-export function withTimeout(promise, ms) {
-  let timer;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Timeout')), ms);
-    }),
-  ]);
-}
-```
-```ts
-// Redux slice with eviction
-while (state.ids.length > 200) {
-  const evictId = state.ids.shift()!;
-  delete state.entities[evictId];
-}
-```
-
-### Debugging Tips
-- Chrome DevTools → Memory tab → Heap snapshots.  
-- Performance panel → watch JS heap line.  
-- Log `performance.memory.usedJSHeapSize` (Chrome only).  
-- Run tests with `node --expose-gc` to catch leaks early.
+Pick two modules to deep dive based on interviewer interest.
 
 ---
 
-## Part 8 – Tools & Practice
+## Part 6 – Non-Functional Considerations
 
-- **Drawing:** draw.io, Miro, Lucidchart, Jamboard.  
-- **Whiteboarding:** real whiteboard or tablet practice.  
-- **Coding sandboxes:** CodeSandbox, StackBlitz.  
-- **Mock interviews:** record yourself, time yourself, swap with friends.  
-- **Resource vault:** keep templated diagrams, API contracts, component checklists.
+- **Devices:** Responsive vs adaptive layouts, accessibility for touch/keyboard.
+- **Performance budgets:** LCP < 2.5s, bundle size caps, partial hydration.
+- **Network resilience:** Edge caching, fallback UI for 3G, `navigator.connection` hints.
+- **Security:** XSS (escape + CSP), CSRF (same-site cookies/tokens), RBAC, secret storage, audit logging.
+- **Offline:** Service worker caching, queued mutations, optimistic UI.
+- **Observability:** Structured logs, metrics (Datadog/New Relic), product analytics (Amplitude/Mixpanel), error monitoring (Sentry).
+- **Release workflow:** CI/CD pipelines, lint/tests, feature flags, staged rollout, rollback strategy.
+- **Internationalization:** `react-intl`, RTL support, dynamic locale bundles.
 
 ---
 
-## Part 9 – Quick Checklists
+## Part 7 – Tools & Practice
+
+- **Diagramming:** draw.io, Lucidchart, Miro, Jamboard.  
+- **Whiteboarding:** real whiteboard, tablet, or collaborative doc.  
+- **Coding practice:** CodeSandbox, StackBlitz, local dev + Storybook.  
+- **Mock interviews:** pair with peers, record for self-review.  
+- **Resource vault:** component diagrams, API templates, checklists.
+
+---
+
+## Part 8 – Mantras for the Room
+
+1. Restate and align before drawing.  
+2. Narrate trade-offs plainly.  
+3. Ask “anything else?” after each major decision.  
+4. Highlight risks and mitigation.  
+5. Summarise and invite questions at the end.
+
+---
+
+## Part 9 – Preparation Checklist
 
 ### Before the Interview
-1. Review requirements ladder (functional + non-functional).  
-2. Pick a default tech stack story.  
-3. Prepare two deep modules (e.g., catalog + cart).  
-4. Rehearse drawing the component tree.  
-5. Memorise top optimisation habits.
+- Review functional & non-functional requirement prompts.
+- Pick a default stack (React + TanStack Query + Redux Toolkit + Vite, etc.).
+- Prepare deep dives for two modules.
+- Practice sketching the component tree and data flow.
+- Memorize top performance and security habits.
 
 ### During the Interview
-1. Clarify scope.  
-2. Talk through the seven steps.  
-3. Use simple words and analogies.  
-4. Mention trade-offs and risks.  
-5. Close with a summary and next steps.
+- Confirm scope (HLD vs LLD).  
+- Walk through the seven steps.  
+- Use analogies and simple language.  
+- Mention trade-offs, risks, and monitoring.  
+- Summarise decisions with next steps.
 
 ### After the Interview
-1. Note questions you missed.  
-2. Update diagrams or checklists.  
-3. Celebrate the learning!
+- Note follow-up questions you missed.  
+- Update diagrams/checklists.  
+- Celebrate the learning!
 
 ---
 
-## Appendix – Handy Commands
+## Part 10 – Performance Optimization Deep Dive
+
+### Async vs Defer Scripts
+- `async`: download during parsing, execute immediately (good for analytics).  
+- `defer`: download during parsing, execute after DOM ready (great for bundles).
+```html
+<script src="/static/js/main.js" defer></script>
+<script src="https://cdn.launchdarkly.com/js/client.min.js" async></script>
+```
+
+### Route-Level Code Splitting
+```tsx
+const Dashboard = lazy(() => import('../pages/Dashboard'));
+```
+Use `Suspense` with fallback skeletons.
+
+### Lazy Loading Attributes
+- `loading="lazy"` for below-the-fold images/iframes.  
+- `fetchpriority="high|low"` to hint browser priority.  
+- `priority="low"` (Chrome) for eager but deprioritized assets.
+
+### Intersection Observer
+```tsx
+const sentinelRef = useInfiniteScroll(loadMore, { rootMargin: '400px', threshold: 0.25 });
+```
+Batches fetches only when needed.
+
+### Content Visibility
+```css
+.timeline-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 800px;
+}
+```
+Guard with `@supports` to avoid older browser issues.
+
+### Critical CSS & Async Swaps
+Inline above-the-fold styles; lazy-load the rest with `onload` swap.
+
+### Resource Hints
+- `preload`, `prefetch`, `preconnect`, `dns-prefetch`, `modulepreload`, `prerender`.  
+- Always set `as`, `type`, and `crossorigin` correctly.
+
+### CDN & Cache Control Strategy
+- Immutable hashed assets: `Cache-Control: public, max-age=31536000, immutable`.  
+- HTML: `Cache-Control: public, max-age=0, must-revalidate, stale-while-revalidate=60`.  
+- Use `Surrogate-Control` for CDN-specific lifetimes.
+
+### Service Worker Caching
+- Lifecycle: `install` (precache), `activate` (cleanup), `fetch` (strategy).  
+- Choose between CacheFirst, NetworkFirst, StaleWhileRevalidate depending on resource.  
+- Workbox for declarative setup.
+
+### Rendering Strategies
+- **CSR:** fast iteration, heavy initial JS, requires skeletons.  
+- **SSR:** better SEO/TTFB, heavier infra.  
+- **SSG:** static builds for docs/blogs.  
+- **ISR:** hybrid revalidation (Next.js).  
+- Use React 18 streaming + partial hydration for large pages.
+
+### HTTP Compression
+- Enable Brotli (`br`), fallback to Gzip.  
+- Set `Vary: Accept-Encoding`.  
+- Track asset size with `brotli-size`/`gzip-size`.
+
+### Layout Shift Prevention
+- Reserve space (`aspect-ratio`, fixed height).  
+- Batch DOM reads/writes.  
+- Use transforms/opacity for animations.  
+- Preload fonts (`font-display: swap`).
+
+### Web Vitals Telemetry
+```tsx
+reportWebVitals(({ name, value }) => {
+  navigator.sendBeacon(
+    '/metrics',
+    JSON.stringify({ name, value, viewport: `${innerWidth}x${innerHeight}` })
+  );
+});
+```
+Capture metadata (connection type, UA) for cohort analysis.
+
+### Frame Budget & `requestAnimationFrame`
+Aim for ~10 ms main-thread work. Break long tasks with `requestIdleCallback` or chunk processing.
+
+### Verify Improvements
+- Lighthouse (lab).  
+- WebPageTest (filmstrip, CPU).  
+- CrUX (real user).  
+- Lighthouse budgets in CI.
+
+---
+
+## Part 11 – Asset Optimization Guide
+
+### Images
+- Compression (Sharp/Squoosh/TinyPNG).  
+- Multi-format `<picture>` with WebP/AVIF fallback to JPEG.  
+- Responsive `srcset` + `sizes`.  
+- Adaptive loading using `navigator.connection`.  
+- Blur/dominant-color placeholders.  
+- Icon sprites to reduce requests.
+
+### Video
+- Prefer WebM/AV1, fallback to MP4.  
+- Replace GIF loops with muted autoplay videos.  
+- `preload="metadata"` by default; use `auto` only for hero sections.  
+- Remove audio when not needed.  
+- Stream with HLS/DASH for long-form content.
+
+### Fonts
+- Multiple formats (WOFF2 → WOFF → TTF).  
+- `font-display: swap` or `optional`.  
+- Subset fonts with `pyftsubset`, `glyphhanger`.  
+- Load with FontFaceObserver, toggle CSS classes when ready.  
+- Use data URIs only for tiny assets.
+
+### CSS
+- Inline critical CSS, lazy-load remainder.  
+- Media-specific bundles (`print.css`, `dark.css`).  
+- Remove unused selectors (PurgeCSS, Tailwind `content`).  
+- SSR extraction for CSS-in-JS libraries.
+
+### JavaScript
+- `defer` app bundles, `async` analytics.  
+- Dynamic imports via `React.lazy`.  
+- Tree-shake dependencies (ESM).  
+- Workers for heavy compute.  
+- Monitor hydration time and module budgets.
+
+---
+
+## Part 12 – JavaScript Memory Optimization
+
+### Top 10 Leak Patterns
+1. **Accidental globals** – use `'use strict'`, block-scoped declarations.
+2. **Stale timers** – always `clearInterval`/`clearTimeout`.
+3. **Listener buildup** – remove before re-adding or use `{ once: true }`.
+4. **Detached DOM references** – nullify references after removing nodes.
+5. **Heavy closures** – limit captured variables, release caches.
+6. **Reference cycles** – break parent/child links on teardown.
+7. **Detached windows** – `popup?.close(); popup = null`.
+8. **Unsettled promises** – settle or race with timeouts.
+9. **Observers & subscriptions** – call `disconnect()` or `unsubscribe()` on cleanup.
+10. **Virtualised lists storing everything** – evict old items from state.
+
+### Debugging Workflow
+- Heap snapshots in DevTools.  
+- Monitor JS heap in Performance panel.  
+- Log `performance.memory.usedJSHeapSize` (Chrome).  
+- Use `memlab`, `lighthouse --budgets`, or tests with `node --expose-gc`.
+
+---
+
+## Part 13 – Quick References & Commands
 
 | Task | Command |
 | ---- | ------- |
