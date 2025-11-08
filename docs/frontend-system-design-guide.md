@@ -751,6 +751,153 @@ worker.onmessage = ({ data }) => setPrimes(data);
 
 - **Idle and animation scheduling:** Use `requestIdleCallback` for non-urgent work (feature flag hydration, analytics) and `requestAnimationFrame` for visual updates (see frame budget helper above).
 
+## JavaScript Memory Optimization
+Network wins fade if your runtime leaks. These guardrails cover the top leaks from the transcript—fold them into reviews and refactors.
+
+### 1. Accidental Globals
+- Implicit globals (`foo = 42`) bind to `window` and survive the whole session.
+- Enforce `'use strict'`, prefer modules, and lint (`no-undef`, `no-global-assign`).
+
+```js
+'use strict';
+
+function bootstrap() {
+  const greeting = 'Hi, Chakde System Design!';
+  window.appState = { greeting }; // explicit opt-in
+}
+```
+
+### 2. Stale Timers
+- `setInterval` retains its closure until `clearInterval`.
+- Keep handles and clear them when components unmount or goals are met.
+
+```tsx
+useEffect(() => {
+  const id = setInterval(pollOrders, 5000);
+  return () => clearInterval(id);
+}, [pollOrders]);
+```
+
+### 3. Listener Buildup
+- Reattaching listeners creates duplicates; each holds references.
+- Remove old listeners, or mark `{ once: true }` to auto-clean.
+
+```js
+button.addEventListener('click', handleSubmit, { once: true });
+```
+
+### 4. Detached DOM References
+- Removing nodes doesn’t free them if JS variables still point at them.
+- Null, reassign, or scope references tightly.
+
+```js
+let tooltip = document.querySelector('#tooltip');
+tooltip.remove();
+tooltip = null;
+```
+
+### 5. Heavy Closures
+- Closures capture outer variables—accidentally referencing huge objects keeps them alive.
+- Minimise closure scope and null out caches when done.
+
+```js
+function createFormatter(config) {
+  let cache = {};
+  return (value) => {
+    if (!cache[value]) cache[value] = expensiveFormat(value, config);
+    return cache[value];
+  };
+}
+// Later:
+formatter = null;
+```
+
+### 6. Reference Cycles
+- Bi-directional pointers (`parent.child = child; child.parent = parent`) survive until every edge is removed.
+
+```js
+const parent = {};
+const child = {};
+parent.child = child;
+child.parent = parent;
+
+delete parent.child;
+delete child.parent;
+```
+
+### 7. Detached Windows
+- `window.open` handles must be nulled after closing or they linger.
+
+```js
+let popup = null;
+
+export function openPopup() {
+  popup = window.open('/promo', 'promoWindow');
+}
+
+export function closePopup() {
+  popup?.close();
+  popup = null;
+}
+```
+
+### 8. Unsettled Promises
+- Promises that never resolve/reject keep captured data forever.
+- Always settle or race with a timeout.
+
+```ts
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Timeout')), ms);
+    }),
+  ]);
+}
+```
+
+### 9. Observers & Subscriptions
+- `IntersectionObserver`, `ResizeObserver`, `MutationObserver`, RxJS subscriptions—disconnect/unsubscribe on teardown.
+
+```ts
+useEffect(() => {
+  const observer = new ResizeObserver(updateLayout);
+  observer.observe(containerRef.current!);
+  return () => observer.disconnect();
+}, []);
+```
+
+### 10. Virtualised Lists with Growing Stores
+- DOM virtualisation helps, but redux/state caches can still balloon if you never evict old pages.
+
+```ts
+const MAX_CACHED_IDS = 200;
+
+const slice = createSlice({
+  name: 'products',
+  initialState: { ids: [] as string[], entities: {} as Record<string, Product> },
+  reducers: {
+    productsReceived(state, action: PayloadAction<Product[]>) {
+      action.payload.forEach((product) => {
+        state.entities[product.id] = product;
+        if (!state.ids.includes(product.id)) state.ids.push(product.id);
+      });
+      while (state.ids.length > MAX_CACHED_IDS) {
+        const evict = state.ids.shift()!;
+        delete state.entities[evict];
+      }
+    },
+  },
+});
+```
+
+### Debugging Workflow
+- **Heap snapshots:** Chrome DevTools → Memory → Heap snapshot before/after actions.
+- **Performance panel:** Record flame charts for long sessions; watch `JS Heap` line.
+- **`performance.memory.usedJSHeapSize`:** Chrome-only quick checks; log to telemetry.
+- **Automated leak tests:** Tools like `memlab`, `lighthouse --budgets`, or integration tests with `node --expose-gc`.
+
 ## Interview Tools to Practice
 - **Diagramming canvases (visual architecture drafting):** draw.io and Lucidchart provide drag-and-drop shapes with collaboration; Gliffy embeds in Confluence; Miro offers infinite boards with templates; Microsoft OneNote supports stylus sketches; Google Jamboard (a.k.a. Zenboard) enables multi-slide whiteboarding. *React example: recreating a Netflix-style component hierarchy in Miro before the interview so you can quickly rearrange modules live.*
 - **Whiteboarding practice (hand-drawn storytelling):** If onsite, rehearse sketching flows on a physical whiteboard or tablet, focusing on legible labels and steady narration. *React example: drawing the Redux data flow for a cart feature on an iPad to refine how you explain dispatch, reducers, and selectors.*
