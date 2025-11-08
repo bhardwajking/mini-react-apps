@@ -38,6 +38,29 @@ Client App ── waiter/API ──► Account Service (auth/billing)
 - **Three-tier:** Client → API gateway/business service → database. Separation of concerns, caching layers, auth boundaries.
 - **N-tier / microservices:** Additional specialized services (payments, search, notification), each exposing APIs. They communicate server-to-server before the client ever sees a response.
 
+| Tier | Restaurant Analogy | Typical Web Stack Example |
+|------|--------------------|---------------------------|
+| 1-tier | Single stall where cooking, serving, and billing happen at one counter | Static HTML + local SQLite |
+| 2-tier | Dining area (client) and kitchen (server) connected by a waiter | React SPA + Express monolith |
+| 3-tier | Dining area, billing counter, and kitchen | React SPA → API Gateway → Node service → Postgres |
+| N-tier | Dining area, billing, kitchen, cold storage, beverage station, delivery partner | SPA → API Gateway → auth/payment/order/search microservices → DB + cache + queue |
+
+### Request/Response & APIs
+- **Request:** Client asks for something (`GET /api/samosas?count=2`).
+- **Response:** Server delivers data or an error (JSON payload, HTTP status).
+- **API (waiter):** Mediates communication; enforces contracts, validates orders, forwards to the right service.
+- **Server-to-server APIs:** Services also call each other. Example: billing service invokes inventory service before confirming the payment.
+
+```ts
+// billing.service.ts
+export async function chargeAndReserve(userId: string, items: CartItem[]) {
+  await inventoryClient.reserve(items);        // server → server call
+  const receipt = await paymentClient.charge(userId, items);
+  await ordersClient.createOrder(userId, items, receipt);
+  return receipt;
+}
+```
+
 ### Front-End vs Back-End Boundaries
 - **Front-end:** Everything that ships with the client (React components, CSS, Service Worker, local storage). Its job is to gather inputs, call APIs, render state, and handle interactions.
 - **Back-end:** Services, queues, databases, caches, and batch jobs that process, enrich, and persist data.
