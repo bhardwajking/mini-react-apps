@@ -136,6 +136,8 @@ export default function AppRouter() {
 
 ### Native Lazy Loading Attributes
 - Add `loading="lazy"` to below-the-fold images/iframes and pair hero assets with `loading="eager"` plus `fetchpriority="high"` to guarantee early fetches.
+- Chrome also recognises `priority="low"` for eager-but-deprioritised assets (e.g., hero carousel frames), while other browsers simply ignore the hint—safe to add defensively.
+- Lazy load embeds too: `<iframe loading="lazy">` keeps third-party scripts from blocking interactivity until the user scrolls near them.
 
 ```jsx
 <img
@@ -149,11 +151,20 @@ export default function AppRouter() {
   alt={`${product.name} side angle`}
   loading="lazy"
   fetchpriority="low"
+  referrerPolicy="no-referrer"
+/>
+<iframe
+  src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+  title="Behind the scenes"
+  loading="lazy"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
 />
 ```
 
 ### Intersection Observer for Infinite Lists
 - Replace scroll event spam with a sentinel node watched by `IntersectionObserver`. Fetch additional data only when the sentinel appears.
+- Use the `root` option for scrollable containers (e.g., modals) and tweak `threshold`/`rootMargin` to fire before the user hits the end (e.g., `rootMargin: '400px'` preloads one screen early).
 
 ```tsx
 // src/hooks/useInfiniteScroll.ts
@@ -210,6 +221,8 @@ export default function ProductGrid({ initialProducts, fetchNextPage }) {
 
 ### `content-visibility`
 - Let the browser lazily render off-screen sections. Combine with `contain-intrinsic-size` to reserve layout space and avoid layout shifts.
+- Wrap usage in a feature query to avoid surprising older Safari/Firefox versions: `@supports (content-visibility: auto) { ... }`.
+- For variable-height sections, set `contain-intrinsic-block-size` to a conservative estimate so the browser reserves space until actual rendering.
 
 ```css
 .timeline-section {
@@ -234,17 +247,69 @@ export default function ProductGrid({ initialProducts, fetchNextPage }) {
 
 ### Resource Hinting
 - `preconnect` and `dns-prefetch` warm up the connection, `preload` pulls critical assets now, `prefetch` queues likely future routes/resources, and `prerender` pre-navigates entire pages (use sparingly).
+- `modulepreload` lets the browser resolve ES module dependency graphs before evaluation, preventing waterfall fetches for dynamic imports.
+- Always include `as`, `type`, and `crossorigin` so the browser fully optimises caching and avoids mixed-mode re-downloads.
 
 ```html
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="dns-prefetch" href="//www.googletagmanager.com" />
 <link rel="preload" href="/fonts/Inter-Variable.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="prefetch" href="/static/chunks/cart-page.js" as="script" />
+<link rel="modulepreload" href="/static/js/dashboard-bootstrap.js" />
 <link rel="prerender" href="https://app.example.com/dashboard" />
+```
+
+### CDN & Cache-Control Strategy
+- Push immutable, fingerprinted assets (`/static/js/main.abc123.js`) to the CDN with long-lived caching (`Cache-Control: public, max-age=31536000, immutable`).
+- Use `stale-while-revalidate` and `stale-if-error` for HTML so fallback pages remain instant while the CDN refreshes in the background.
+- Separate browser and edge cache lifetimes with `Surrogate-Control` (Fastly, Cloudflare) when you need CDN freshness but strict client behaviour.
+
+```tsx
+// src/server/middleware/cacheHeaders.ts
+import type { RequestHandler } from 'express';
+
+export const cacheHeaders: RequestHandler = (req, res, next) => {
+  if (/\.[a-f0-9]{8,}\.(js|css)$/.test(req.url)) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  } else if (req.url.endsWith('.svg') || req.url.endsWith('.woff2')) {
+    res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+  } else {
+    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    res.setHeader('Surrogate-Control', 'max-age=60, stale-while-revalidate=600');
+  }
+  next();
+};
+```
+
+```js
+// next.config.js
+module.exports = {
+  async headers() {
+    return [
+      {
+        source: '/:all*(js|css|png|jpg|svg|woff2)',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      {
+        source: '/',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate, stale-while-revalidate=60' },
+        ],
+      },
+    ];
+  },
+};
 ```
 
 ### Service Worker Caching
 - Use the service worker as an offline-first proxy. Cache shell assets during `install`, update runtime caches during `fetch`, and fall back to an offline page when the network is down.
+- Lifecycle quick reference:
+  - **install** → pre-cache essentials (call `self.skipWaiting()` if you want the new worker to activate immediately).
+  - **activate** → clean old caches and optionally `clients.claim()` so pages controlled by the previous worker switch over without reload.
+  - **fetch** → decide between CacheFirst, NetworkFirst, or StaleWhileRevalidate strategies based on request type.
+- Libraries like Workbox wrap these patterns with declarative helpers; manual wiring (below) keeps the moving parts explicit.
 
 ```ts
 // public/service-worker.js
@@ -284,6 +349,30 @@ export function registerServiceWorker() {
 }
 ```
 
+```js
+// public/service-worker-workbox.js
+import { precacheAndRoute } from 'workbox-precaching';
+import { registerRoute } from 'workbox-routing';
+import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
+
+precacheAndRoute(self.__WB_MANIFEST || []);
+
+registerRoute(
+  ({ request }) => request.destination === 'document',
+  new NetworkFirst({ cacheName: 'pages', networkTimeoutSeconds: 3 })
+);
+
+registerRoute(
+  ({ request }) => request.destination === 'style' || request.destination === 'script',
+  new StaleWhileRevalidate({ cacheName: 'assets' })
+);
+
+registerRoute(
+  ({ request }) => request.destination === 'image',
+  new CacheFirst({ cacheName: 'images', matchOptions: { ignoreVary: true } })
+);
+```
+
 ### Rendering Strategies Cheat Sheet
 - **CSR (client-side rendering):** Fast iterations, relies on hydration. Pair with skeleton loaders to manage perceived latency.
 - **SSR (server-side rendering):** Better SEO/TTFB; React 18 streaming plus partial hydration reduces blocking time.
@@ -305,6 +394,8 @@ export async function getStaticProps({ params }) {
 
 ### HTTP Compression
 - Enable Brotli (`br`) wherever supported, fall back to Gzip (`gzip`) for legacy browsers/CDN nodes.
+- Set `Vary: Accept-Encoding` to keep compressed and uncompressed variants distinct in intermediate caches.
+- Benchmark with `npx brotli-size build/static/js/main.js` or `gzip-size` during CI to catch asset regressions automatically.
 
 ```nginx
 gzip on;
@@ -315,6 +406,14 @@ brotli_types text/css application/javascript application/json;
 
 ### Layout Shift Prevention
 - Reserve space with intrinsic ratios, batch DOM reads/writes, and use transforms/opacity for animations to stay on the compositor thread.
+- Use `font-display: swap` and preloaded font files to avoid FOIT (flash of invisible text) that leads to late layout jumps.
+- Reference table for common operations:
+
+| Operation category | Example properties / APIs | Layout? | Paint? | Composite? |
+|--------------------|---------------------------|---------|--------|------------|
+| Layout (reflow)    | `offsetWidth`, changing `width`, `top`, `font-size`, appending DOM nodes | ✅ | ✅ | ✅ |
+| Paint              | `background-color`, `color`, `box-shadow`, `border` | ❌ | ✅ | ✅ |
+| Composite only     | `transform`, `opacity`, `filter` | ❌ | ❌ | ✅ |
 
 ```tsx
 // src/components/FadeInImage.tsx
@@ -349,6 +448,8 @@ export default function FadeInImage(props) {
 
 ### Web Vitals Telemetry
 - Collect Core Web Vitals with the `web-vitals` package and forward them to observability pipelines for real-user monitoring (RUM).
+- Add metadata (connection type, user agent, route) so you can slice regressions by cohort.
+- Pair RUM with synthetic checks (Lighthouse CI, WebPageTest) to prevent regressions before deploy.
 
 ```tsx
 // src/reportWebVitals.ts
@@ -372,6 +473,36 @@ reportWebVitals(({ name, value }) => {
   );
 });
 ```
+
+### Frame Budget & `requestAnimationFrame`
+- Aim for ~10 ms of main-thread work per frame to maintain 60 fps (16.7 ms frame budget minus browser overhead).
+- Break long tasks into chunks (`queueMicrotask`, `requestIdleCallback`) and schedule DOM reads/writes inside `requestAnimationFrame` to avoid layout thrashing.
+
+```tsx
+// src/utils/scheduleLayoutWork.ts
+type Measurement = () => number;
+type Mutation = (value: number) => void;
+
+export function scheduleLayoutWork(read: Measurement, write: Mutation) {
+  requestAnimationFrame(() => {
+    const measurement = read();
+    requestAnimationFrame(() => write(measurement));
+  });
+}
+```
+
+```tsx
+// usage
+scheduleLayoutWork(
+  () => document.querySelector('.sidebar')!.getBoundingClientRect().height,
+  (height) => document.documentElement.style.setProperty('--sidebar-height', `${height}px`)
+);
+```
+
+### Verify Improvements
+- Run Lighthouse locally (`npx lighthouse http://localhost:3000 --view`) or integrate Lighthouse CI with budgets to guard against regressions.
+- Use WebPageTest filmstrips/CPU charts to validate that lazy loading, hinting, and compression deliver real perceived speed gains.
+- Track Chrome UX Report (CrUX) origin data to ensure improvements reach production users, not just lab tests.
 
 ## Interview Tools to Practice
 - **Diagramming canvases (visual architecture drafting):** draw.io and Lucidchart provide drag-and-drop shapes with collaboration; Gliffy embeds in Confluence; Miro offers infinite boards with templates; Microsoft OneNote supports stylus sketches; Google Jamboard (a.k.a. Zenboard) enables multi-slide whiteboarding. *React example: recreating a Netflix-style component hierarchy in Miro before the interview so you can quickly rearrange modules live.*
