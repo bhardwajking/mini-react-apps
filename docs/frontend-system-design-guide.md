@@ -96,6 +96,283 @@ Use interviewer guidance to decide which modules to flesh out and which to park.
 - **Performance and optimization (visible speed):** Prioritize above-the-fold rendering, stream resources progressively, and measure impact with Core Web Vitals. *React example: splitting bundles with dynamic imports, precomputing product listings via Incremental Static Regeneration, shipping Brotli-compressed assets over HTTP/2, and surfacing skeleton UIs while data hydrates.*
 - **Testing strategy (confidence layers):** Unit tests validate functions, integration tests verify component collaborations, and end-to-end tests assert user journeys. *React example: running Jest for utility hooks, React Testing Library for form validation, and Playwright end-to-end suites that exercise sign-up, purchase, and refund flows nightly.*
 
+## Performance Optimization Deep Dive
+Network awareness and runtime discipline separate senior frontend engineers from the pack. These tactics map directly to the “network optimization” layer from the transcript and include React-ready implementations you can adapt immediately.
+
+### Async vs. Defer Scripts
+- `async` scripts download in parallel with HTML parsing, pausing parsing only during execution. Perfect for analytics or flag SDKs that do not gate rendering.
+- `defer` scripts download alongside parsing but execute after the DOM is parsed, ideal for application bundles and framework runtimes.
+
+```html
+<script src="/static/js/main.js" defer></script>
+<script src="https://cdn.launchdarkly.com/js/client.min.js" async></script>
+```
+
+### Route-Level Code Splitting
+- `React.lazy` and `Suspense` keep non-critical routes off the critical path while still offering fallback UI.
+
+```tsx
+// src/routes/AppRouter.tsx
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import LoadingScreen from '../components/LoadingScreen';
+
+const Dashboard = lazy(() => import('../pages/Dashboard'));
+const Reports = lazy(() => import('../pages/Reports'));
+
+export default function AppRouter() {
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
+          <Route path="/" element={<Dashboard data-priority="high" />} />
+          <Route path="/reports/*" element={<Reports />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}
+```
+
+### Native Lazy Loading Attributes
+- Add `loading="lazy"` to below-the-fold images/iframes and pair hero assets with `loading="eager"` plus `fetchpriority="high"` to guarantee early fetches.
+
+```jsx
+<img
+  src={product.heroImage}
+  alt={product.name}
+  loading="eager"
+  fetchpriority="high"
+/>
+<img
+  src={product.galleryImages[0]}
+  alt={`${product.name} side angle`}
+  loading="lazy"
+  fetchpriority="low"
+/>
+```
+
+### Intersection Observer for Infinite Lists
+- Replace scroll event spam with a sentinel node watched by `IntersectionObserver`. Fetch additional data only when the sentinel appears.
+
+```tsx
+// src/hooks/useInfiniteScroll.ts
+import { useEffect, useRef } from 'react';
+
+export function useInfiniteScroll(callback: () => void) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) callback();
+      },
+      { rootMargin: '400px', threshold: 0.25 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [callback]);
+
+  return sentinelRef;
+}
+```
+
+```tsx
+// src/components/ProductGrid.tsx
+import { useState, useCallback } from 'react';
+import ProductCard from './ProductCard';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+
+export default function ProductGrid({ initialProducts, fetchNextPage }) {
+  const [products, setProducts] = useState(initialProducts);
+  const loadMore = useCallback(async () => {
+    const next = await fetchNextPage();
+    setProducts((prev) => [...prev, ...next]);
+  }, [fetchNextPage]);
+
+  const sentinelRef = useInfiniteScroll(loadMore);
+
+  return (
+    <div className="grid">
+      {products.map((product) => (
+        <ProductCard key={product.id} product={product} />
+      ))}
+      <div ref={sentinelRef} aria-hidden="true" />
+    </div>
+  );
+}
+```
+
+### `content-visibility`
+- Let the browser lazily render off-screen sections. Combine with `contain-intrinsic-size` to reserve layout space and avoid layout shifts.
+
+```css
+.timeline-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 800px;
+}
+```
+
+### Critical CSS and Async Swaps
+- Inline above-the-fold CSS, load the rest with `media="print"` plus `onload` swap, or use a build tool (e.g., Critters for Next.js).
+
+```html
+<link rel="stylesheet" href="/css/critical.css" />
+<link
+  rel="stylesheet"
+  href="/css/app.css"
+  media="print"
+  onload="this.media='all'"
+/>
+<noscript><link rel="stylesheet" href="/css/app.css" /></noscript>
+```
+
+### Resource Hinting
+- `preconnect` and `dns-prefetch` warm up the connection, `preload` pulls critical assets now, `prefetch` queues likely future routes/resources, and `prerender` pre-navigates entire pages (use sparingly).
+
+```html
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="dns-prefetch" href="//www.googletagmanager.com" />
+<link rel="preload" href="/fonts/Inter-Variable.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="prefetch" href="/static/chunks/cart-page.js" as="script" />
+<link rel="prerender" href="https://app.example.com/dashboard" />
+```
+
+### Service Worker Caching
+- Use the service worker as an offline-first proxy. Cache shell assets during `install`, update runtime caches during `fetch`, and fall back to an offline page when the network is down.
+
+```ts
+// public/service-worker.js
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open('static-v1').then((cache) => cache.addAll(['/index.html', '/offline.html']))
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open('dynamic-v1').then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match('/offline.html'));
+    })
+  );
+});
+```
+
+```tsx
+// src/serviceWorkerRegistration.ts
+export function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').catch((error) => {
+        console.error('SW registration failed', error);
+      });
+    });
+  }
+}
+```
+
+### Rendering Strategies Cheat Sheet
+- **CSR (client-side rendering):** Fast iterations, relies on hydration. Pair with skeleton loaders to manage perceived latency.
+- **SSR (server-side rendering):** Better SEO/TTFB; React 18 streaming plus partial hydration reduces blocking time.
+- **SSG (static site generation):** Build-time HTML for marketing or docs. Keep rebuild cadence to avoid stale data.
+- **ISR / On-demand revalidation:** Hybrid (Next.js) that updates pages in the background.
+
+```tsx
+// pages/products/[slug].tsx (Next.js)
+export async function getStaticPaths() {
+  const slugs = await fetchPopularProductSlugs();
+  return { paths: slugs.map((slug) => ({ params: { slug } })), fallback: 'blocking' };
+}
+
+export async function getStaticProps({ params }) {
+  const product = await fetchProduct(params.slug);
+  return { props: { product }, revalidate: 60 };
+}
+```
+
+### HTTP Compression
+- Enable Brotli (`br`) wherever supported, fall back to Gzip (`gzip`) for legacy browsers/CDN nodes.
+
+```nginx
+gzip on;
+gzip_types text/css application/javascript application/json;
+brotli on;
+brotli_types text/css application/javascript application/json;
+```
+
+### Layout Shift Prevention
+- Reserve space with intrinsic ratios, batch DOM reads/writes, and use transforms/opacity for animations to stay on the compositor thread.
+
+```tsx
+// src/components/FadeInImage.tsx
+import { useState } from 'react';
+import clsx from 'clsx';
+
+export default function FadeInImage(props) {
+  const [loaded, setLoaded] = useState(false);
+
+  return (
+    <img
+      {...props}
+      onLoad={() => setLoaded(true)}
+      className={clsx('fade-image', { 'fade-image--visible': loaded })}
+      style={{ aspectRatio: props.width / props.height }}
+    />
+  );
+}
+```
+
+```css
+.fade-image {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.fade-image--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+```
+
+### Web Vitals Telemetry
+- Collect Core Web Vitals with the `web-vitals` package and forward them to observability pipelines for real-user monitoring (RUM).
+
+```tsx
+// src/reportWebVitals.ts
+import { onCLS, onFID, onLCP } from 'web-vitals';
+
+export function reportWebVitals(callback: (metric: { name: string; value: number }) => void) {
+  onCLS(callback);
+  onFID(callback);
+  onLCP(callback);
+}
+```
+
+```tsx
+// src/index.tsx
+import { reportWebVitals } from './reportWebVitals';
+
+reportWebVitals(({ name, value }) => {
+  navigator.sendBeacon(
+    '/metrics',
+    JSON.stringify({ name, value, viewport: `${window.innerWidth}x${window.innerHeight}` })
+  );
+});
+```
+
 ## Interview Tools to Practice
 - **Diagramming canvases (visual architecture drafting):** draw.io and Lucidchart provide drag-and-drop shapes with collaboration; Gliffy embeds in Confluence; Miro offers infinite boards with templates; Microsoft OneNote supports stylus sketches; Google Jamboard (a.k.a. Zenboard) enables multi-slide whiteboarding. *React example: recreating a Netflix-style component hierarchy in Miro before the interview so you can quickly rearrange modules live.*
 - **Whiteboarding practice (hand-drawn storytelling):** If onsite, rehearse sketching flows on a physical whiteboard or tablet, focusing on legible labels and steady narration. *React example: drawing the Redux data flow for a cart feature on an iPad to refine how you explain dispatch, reducers, and selectors.*
