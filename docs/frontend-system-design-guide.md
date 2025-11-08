@@ -504,6 +504,162 @@ scheduleLayoutWork(
 - Use WebPageTest filmstrips/CPU charts to validate that lazy loading, hinting, and compression deliver real perceived speed gains.
 - Track Chrome UX Report (CrUX) origin data to ensure improvements reach production users, not just lab tests.
 
+## Asset Optimization Guide
+Network gains only shine when assets are disciplined. The playbook below compacts images, videos, fonts, CSS, and JS so critical bytes hit the wire first and heavy work stays off the main thread.
+
+### Images
+- **Compression first:** Use lossy for marketing imagery (WebP/AVIF), lossless for UI sprites/icons. CLI options:
+  - `sharp` (Node) – convert/resize; `sharp input.jpg -q 65 -o hero.avif`.
+  - `squoosh-cli`, `imagemin`, or web services (Kraken, TinyPNG) during CI.
+- **Format fallback via `<picture>`:**
+
+```html
+<picture>
+  <source srcSet="/img/hero@1x.avif 1x, /img/hero@2x.avif 2x" type="image/avif" />
+  <source srcSet="/img/hero@1x.webp 1x, /img/hero@2x.webp 2x" type="image/webp" />
+  <img src="/img/hero@1x.jpg" alt="Beachfront home" loading="eager" fetchpriority="high" />
+</picture>
+```
+
+- **Responsive `srcset` + `sizes`:** Let the browser select an appropriate candidate based on DPR and viewport width.
+
+```tsx
+<img
+  src="/img/card-400.jpg"
+  srcSet="/img/card-400.jpg 400w, /img/card-800.jpg 800w, /img/card-1200.jpg 1200w"
+  sizes="(max-width: 600px) 90vw, (max-width: 1200px) 45vw, 400px"
+  alt={product.name}
+  loading="lazy"
+/>
+```
+
+- **Adaptive media loading:** Use connection hints to downscale on low-end devices.
+
+```ts
+export function pickImageVariant(base: string) {
+  const connection = navigator.connection;
+  const deviceMemory = (navigator as any).deviceMemory ?? 4;
+  const fast = connection?.effectiveType?.includes('4g') && !connection.saveData && deviceMemory >= 4;
+  return `${base}-${fast ? 'xl' : 'sm'}.webp`;
+}
+```
+
+- **Blur placeholders / dominant-color fills:** Show a tiny base64 preview until the full asset arrives.
+
+```css
+.lazy-image {
+  filter: blur(12px);
+  transition: filter 200ms ease-out;
+}
+.lazy-image--ready { filter: blur(0); }
+```
+
+- **Sprite sheets for icons:** Combine small PNG/SVG icons into a single asset to reduce requests; use `background-position` to reveal segments.
+
+### Videos
+- **Progressive enhancement:** Serve WebM/AV1 first, fall back to MP4/H.264.
+
+```html
+<video controls preload="metadata" poster="/video/trailer-poster@2x.jpg">
+  <source src="/video/trailer.webm" type="video/webm" />
+  <source src="/video/trailer.mp4" type="video/mp4" />
+  Sorry, your browser doesn't support embedded videos.
+</video>
+```
+
+- **Replace GIFs with muted autoplay videos:** Reduce file size ~80% while keeping motion.
+
+```jsx
+<video
+  src="/video/feature-loop.webm"
+  autoPlay
+  loop
+  muted
+  playsInline
+  poster="/video/feature-loop-poster.jpg"
+  loading="lazy"
+/>
+```
+
+- **Responsive posters:** Preload resolution-specific posters so hero banners look sharp without blocking video playback.
+- **Preload policy:** Use `preload="auto"` only for above-the-fold hero clips; fit everything else with `preload="metadata"` or omit entirely.
+- **Streaming pipelines:** For long-form content, prefer HLS/DASH or MSE-based chunking so playback begins after the first segment. If you control the backend, expose byte-range requests.
+- **Audio tracks:** Strip audio from previews (`ffmpeg -an`) or deliver language tracks separately (Netflix-style) and stitch via `<track>` or `MediaSource`.
+
+### Fonts
+- **`font-display` choices:**
+  - `swap` (recommended) – FOUT: render fallback immediately, swap when ready.
+  - `optional` – avoid blocking layout on low-quality networks.
+  - `block` (default) – FOIT; avoid unless absolutely necessary.
+- **Multiple formats:** Serve WOFF2 first, fall back to WOFF or TTF.
+
+```css
+@font-face {
+  font-family: 'Inter';
+  src:
+    url('/fonts/Inter.woff2') format('woff2'),
+    url('/fonts/Inter.woff') format('woff');
+  font-weight: 400;
+  font-display: swap;
+}
+```
+
+- **Subset fonts:** Use `pyftsubset`, `glyphhanger`, or `subset-font` to keep only used glyphs (e.g., remove Cyrillic letters from Latin-only UI).
+- **Lazy load fonts with FontFaceObserver:**
+
+```ts
+import FontFaceObserver from 'fontfaceobserver';
+
+new FontFaceObserver('Inter', { weight: 600 }).load(null, 3000).then(() => {
+  document.documentElement.classList.add('font-inter-loaded');
+});
+```
+
+- **Data URIs for tiny SVG icons/fonts:** Inline to avoid extra round trips; beware base64 overhead (~33%).
+
+### CSS
+- **Critical CSS extraction:** Inline first-fold styles; lazy-load the rest with media swap.
+
+```html
+<link rel="stylesheet" href="/css/critical.css" />
+<link rel="preload" href="/css/app.css" as="style" onload="this.rel='stylesheet'" />
+<noscript><link rel="stylesheet" href="/css/app.css" /></noscript>
+```
+
+- **Media-specific bundles:** Split `print.css`, `dark.css`, `tablet.css` etc., and annotate `media="print"` or `media="(max-width: 600px)"` so unused files stay idle.
+- **CSS-in-JS or code-splitting:** With libraries like emotion/styled-components, prefer SSR extraction (`renderToPipeableStream`) plus lazy component-level bundles so only used styles ship.
+- **Purge unused rules:** Use `@fullhuman/postcss-purgecss`, Tailwind's `content` config, or `cssnano` to strip dead selectors.
+
+### JavaScript
+- **Loading strategy cheat sheet:**
+  - `<script defer>` – default for app bundles.
+  - `<script async>` – analytics/ads; order doesn’t matter.
+  - `<script type="module">` – native ESM; treated like `defer`.
+  - `<script nomodule>` – fallback for legacy browsers.
+- **Dynamic imports + Suspense:** Split large routes or dashboards.
+
+```tsx
+const AdminPanel = lazy(() => import('./AdminPanel'));
+```
+
+- **Tree shaking & dead code elimination:** Ensure libraries ship ESM (`package.json: "module"`) and avoid wildcard imports (prefer `import { Button } from 'lib'`).
+- **Web workers for heavy compute:** Offload CPU-intensive work.
+
+```ts
+// primes.worker.ts
+self.onmessage = ({ data: limit }) => {
+  const primes = calculatePrimes(limit);
+  (self as DedicatedWorkerGlobalScope).postMessage(primes);
+};
+
+// main thread
+const worker = new Worker(new URL('./primes.worker.ts', import.meta.url));
+worker.postMessage(1_000_000);
+worker.onmessage = ({ data }) => setPrimes(data);
+```
+
+- **Idle and animation scheduling:** Use `requestIdleCallback` for non-urgent work (feature flag hydration, analytics) and `requestAnimationFrame` for visual updates (see frame budget helper above).
+
 ## Interview Tools to Practice
 - **Diagramming canvases (visual architecture drafting):** draw.io and Lucidchart provide drag-and-drop shapes with collaboration; Gliffy embeds in Confluence; Miro offers infinite boards with templates; Microsoft OneNote supports stylus sketches; Google Jamboard (a.k.a. Zenboard) enables multi-slide whiteboarding. *React example: recreating a Netflix-style component hierarchy in Miro before the interview so you can quickly rearrange modules live.*
 - **Whiteboarding practice (hand-drawn storytelling):** If onsite, rehearse sketching flows on a physical whiteboard or tablet, focusing on legible labels and steady narration. *React example: drawing the Redux data flow for a cart feature on an iPad to refine how you explain dispatch, reducers, and selectors.*
