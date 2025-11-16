@@ -36,3 +36,35 @@
 **Q:** What are the top mistakes developers make in these interviews, and how can they avoid them?  
 **A:** (1) Coding before thinking—always plan first. (2) Overusing AI—start from your own blank canvas to build real problem-solving muscle. (3) Ignoring the React debugger—practice with it so you can inspect state instantly and look senior in the interview.
 
+## Question 10: Why Add Loading And Error State To A Dropdown?
+**Q:** The dropdown already renders fetched options. Why do we still need explicit loading and error states?  
+**A:** Any time UI syncs with a backend, the user must know when data is in-flight or failed. A dedicated `isLoading` flag disables the select and shows a “Loading…” placeholder, while an `error` flag surfaces failures rather than leaving the component frozen.
+
+## Question 11: How Should Loading And Error UI Be Rendered?
+**Q:** What’s a clean way to show loading/error feedback without cluttering JSX conditionals?  
+**A:** Branch early: return a disabled select with a single “Loading…” option when `isLoading` is true, and a disabled select with the error copy when `error` exists. This keeps layout stable and avoids sprinkling inline ternaries throughout the markup.
+
+## Question 12: Why Separate Presenter And Logic?
+**Q:** The dropdown file mixes fetching logic and JSX. Why refactor it into a presenter component?  
+**A:** Applying the Single Responsibility Principle keeps state management, side effects, and rendering concerns decoupled. A presenter component receives only props, becomes easy to unit test, and can be memoized independently of the data-fetching wrapper.
+
+## Question 13: What Non-Functional Requirements Should Be Reviewed?
+**Q:** Beyond core behavior, which non-functional areas should a senior call out in this refactor?  
+**A:** Cover accessibility (semantic elements, minimal ARIA), web security (sanitizing server-supplied labels), and performance (memoizing the presenter, stable keys, avoiding unnecessary rerenders). Demonstrating awareness of these dimensions shows senior ownership.
+
+## Question 14: How To Keep The Dropdown Accessible?
+**Q:** What accessibility steps are needed for this select-based dropdown?  
+**A:** Prefer native semantic elements (`select`, `option`, `label`) so screen readers understand the control without extra ARIA. Remove decorative `div`s, ensure disabled states announce themselves, and only fall back to ARIA attributes if you later replace the native elements.
+
+## Question 15: When Should Data Be Sanitized?
+**Q:** The option labels come from an API. Do we need to sanitize them?  
+**A:** If the data is user-generated or could contain markup, validate that labels don’t include HTML/script tags before rendering to prevent XSS. Trusted, server-owned enumerations are lower risk, but seniors still surface the sanitization plan.
+
+## Question 16: Where Does Memoization Help?
+**Q:** What is the benefit of wrapping the presenter dropdown in `React.memo`?  
+**A:** Memoization ensures the presentational component rerenders only when its props change, preventing wasted work when the parent’s state updates unrelated fields such as loading/error flags.
+
+## Question 17: What If Design Requires A Custom-Styled Dropdown?
+**Q:** How would requirements change if we couldn’t rely on the native `select` element?  
+**A:** You’d need to build the control from primitives (button + listbox), manage extra state (`isOpen`, `highlightedOption`), handle outside clicks via refs, implement keyboard interactions, and add ARIA roles to regain the accessibility features native selects provide.
+
